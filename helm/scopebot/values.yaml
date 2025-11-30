@@ -13,9 +13,12 @@ frontend:
     repository: scopebot-frontend
     tag: latest
     pullPolicy: IfNotPresent
+  imagePullSecrets:
+    - name: acr-secret
   service:
-    type: ClusterIP
+    type: NodePort  # Changed to NodePort for external access via VM public IP
     port: 80
+    nodePort: 30080  # Fixed port for frontend access
 
 # Backend subchart configuration
 backend:
@@ -24,9 +27,12 @@ backend:
     repository: scopebot-backend
     tag: latest
     pullPolicy: IfNotPresent
+  imagePullSecrets:
+    - name: acr-secret
   service:
-    type: ClusterIP
+    type: NodePort  # Changed to NodePort for external access via VM public IP
     port: 8000
+    nodePort: 30800  # Fixed port for backend access
 
   # Non-sensitive environment variables
   env:
@@ -39,44 +45,44 @@ backend:
     QDRANT_COLLECTION: "knowledge_chunks"
 
   # Sensitive environment variables
-  # These values are from your .env file
-  # REPLACE empty values with your actual credentials before deploying!
+  # DO NOT hardcode secrets here! Use GitHub Secrets in CI/CD or external secret management
+  # These values will be injected from environment variables or external sources
   secrets:
-    # Gemini API (optional - you're using Azure, so these can stay empty)
-    GEMINI_API_KEY: ""  # Leave empty if using Azure
+    # Gemini API (optional - leave empty if using Azure)
+    GEMINI_API_KEY: ""
     GEMINI_MODEL: "gemini-2.0-flash"
 
     # Jina Embeddings (optional if using Azure embeddings)
-    JINA_API_KEY: ""  # REPLACE: Add your Jina API key if you use it
+    JINA_API_KEY: ""
     JINA_MODEL: "jina-embeddings-v2-base-en"
 
-    # Database Configuration - REQUIRED
+    # Database Configuration - REQUIRED (will be injected from GitHub Secrets)
     POSTGRES_DB: "scopebot_db"
     POSTGRES_USER: "scopebot"
-    POSTGRES_PASSWORD: "password"  # CHANGE THIS in production!
-    DATABASE_URL: "postgresql+asyncpg://scopebot:password@scopebot-postgres:5432/scopebot_db"
+    POSTGRES_PASSWORD: ""  # Will be injected from GitHub Secrets
+    DATABASE_URL: ""  # Will be constructed from GitHub Secrets
 
-    # Authentication - REQUIRED
-    SECRET_KEY: "super-secret-key-change-this"  # CHANGE THIS in production!
+    # Authentication - REQUIRED (will be injected from GitHub Secrets)
+    SECRET_KEY: ""  # Will be injected from GitHub Secrets
     ALGORITHM: "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: "1440"  # 1 day
     REFRESH_TOKEN_EXPIRE_DAYS: "7"
 
-    # Email Configuration (SMTP for OTP Reset)
-    SMTP_HOST: "smtp.gmail.com"
-    SMTP_PORT: "587"
-    SMTP_USER: "bhavani.sm@sigmoidanalytics.com"  # REPLACE: your email address
-    SMTP_PASS: "nttuqhwphofkxacw"  # REPLACE: your Gmail app password
+    # Email Configuration (SMTP for OTP Reset) - will be injected from GitHub Secrets
+    SMTP_HOST: ""  # Will be injected from GitHub Secrets
+    SMTP_PORT: ""  # Will be injected from GitHub Secrets
+    SMTP_USER: ""  # Will be injected from GitHub Secrets
+    SMTP_PASS: ""  # Will be injected from GitHub Secrets
 
-    # Ollama Configuration
-    OLLAMA_HOST: "http://172.190.86.69:11434"  # Leave empty or add your Ollama host
+    # Ollama Configuration - will be injected from GitHub Secrets
+    OLLAMA_HOST: ""  # Will be injected from GitHub Secrets
     OLLAMA_MODEL: "deepseek-r1:latest"
     OLLAMA_EMBED_MODEL: "qwen3-embedding:latest"
 
-    # Azure Storage
-    AZURE_STORAGE_ACCOUNT: "scopebot"
-    AZURE_STORAGE_KEY: "za2pfLEOqo3WpVvbDuNTbm/wix8dhmdIQWWT98ScTN26YkVxp2oE03fFjF6gfEku/zJYuK8lPLAi+AStAkB3JA=="
-    AZURE_STORAGE_CONTAINER: "botcontainer"
+    # Azure Storage - will be injected from GitHub Secrets
+    AZURE_STORAGE_ACCOUNT: ""  # Will be injected from GitHub Secrets
+    AZURE_STORAGE_KEY: ""  # Will be injected from GitHub Secrets
+    AZURE_STORAGE_CONTAINER: ""  # Will be injected from GitHub Secrets
 
   volumes:
     localStoragePath: "./local_storage"
@@ -96,9 +102,11 @@ postgres:
   postgres:
     database: "scopebot_db"  # Must match POSTGRES_DB above
     user: "scopebot"
-    password: "password"  # Must match POSTGRES_PASSWORD above - CHANGE in production!
+    password: ""  # Will be injected from GitHub Secrets
   persistence:
-    enabled: false  # Set to true for production with PVC
+    enabled: true  # Enable persistent volumes for data safety
+    size: 10Gi
+    storageClass: ""  # Use default storage class
 
 # Qdrant subchart configuration
 qdrant:
@@ -112,4 +120,6 @@ qdrant:
     port: 6333
     grpcPort: 6334
   persistence:
-    enabled: false  # Set to true for production with PVC
+    enabled: true  # Enable persistent volumes for data safety
+    size: 10Gi
+    storageClass: ""  # Use default storage class
