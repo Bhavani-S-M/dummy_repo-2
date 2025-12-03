@@ -111,6 +111,21 @@ app.include_router(project_prompts.router)
 app.include_router(etl.router)
 app.include_router(case_studies.router)
 
+# ---------- Startup Event ----------
+@app.on_event("startup")
+async def startup_event():
+    """
+    Initialize application on startup.
+    Creates database tables if they don't exist.
+    """
+    try:
+        logger.info("🔄 Initializing database tables...")
+        async with async_engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("✅ Database tables ready")
+    except Exception as e:
+        logger.error(f"❌ Database initialization failed: {e}")
+
 # ---------- Health Check ----------
 @app.get("/health")
 async def health_check():
