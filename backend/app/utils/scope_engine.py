@@ -905,31 +905,39 @@ def _build_scope_prompt(rfp_text: str, kb_chunks: List[str], project=None, quest
         "- Auto-calculate **End Date = Start Date + Effort Months**.\n"
         "- Auto-calculate **overview.Duration** as the total span in months from the earliest Start Date to the latest End Date.\n"
         "- `Complexity` should be simple, medium, or high based on duration of project.\n"
-        "- **Always assign at least one Resource**."
-        "- Distinguish `Owner` (responsible lead role) and `Resources` (supporting roles)."
         "\n"
-        "**Critical: Owner and Resources Assignment Rules:**\n"
+        "**🔴 CRITICAL: Owner and Resources Assignment Rules:**\n"
         "- `Owner` must ALWAYS be a valid JOB ROLE from the company's rate card.\n"
         "- `Owner` is NEVER an activity name, activity description, or task name.\n"
-        "- `Resources` must contain only valid JOB ROLES from the company's rate card.\n"
+        "- `Resources` must ALWAYS contain at least 1-2 supporting JOB ROLES from the company's rate card.\n"
+        "- `Resources` should list supporting team members who assist the Owner (different from Owner).\n"
         "- You MUST use ONLY the roles listed below - DO NOT invent new roles.\n"
-        "- If `Resources` is missing, fallback to the same `Owner` role.\n"
-        "- Use less resources as much as possible.\n"
+        "- ⚠️ NEVER leave `Resources` empty or null - ALWAYS assign at least one supporting role.\n"
+        "- For simple activities, assign 1 supporting resource; for complex activities, assign 2-3 resources.\n"
+        "- Example: If Owner is 'Backend Developer', Resources could be 'QA Engineer' or 'DevOps Engineer'.\n"
         "\n"
         f"**🔴 MANDATORY: Use ONLY these exact roles from the company's rate card:**\n"
         f"{chr(10).join('  - ' + role for role in (rate_card_roles or []))}\n"
         "\n"
-        "**Examples of CORRECT Owner assignment:**\n"
-        f"  ✓ Owner: \"{rate_card_roles[0] if rate_card_roles else 'Backend Developer'}\" (this is a role from the rate card)\n"
-        f"  ✓ Owner: \"{rate_card_roles[1] if len(rate_card_roles) > 1 else 'Data Engineer'}\" (this is a role from the rate card)\n"
-        f"  ✓ Owner: \"{rate_card_roles[2] if len(rate_card_roles) > 2 else 'Solution Architect'}\" (this is a role from the rate card)\n"
+        "**Examples of CORRECT Owner and Resources assignment:**\n"
+        "  ✓ Activity: 'Backend API Development'\n"
+        f"     Owner: \"{rate_card_roles[0] if rate_card_roles else 'Backend Developer'}\"\n"
+        f"     Resources: \"{rate_card_roles[1] if len(rate_card_roles) > 1 else 'QA Engineer'}, {rate_card_roles[2] if len(rate_card_roles) > 2 else 'DevOps Engineer'}\"\n"
         "\n"
-        "**Examples of INCORRECT Owner assignment (DO NOT DO THIS):**\n"
+        "  ✓ Activity: 'Data Pipeline Development'\n"
+        f"     Owner: \"{rate_card_roles[1] if len(rate_card_roles) > 1 else 'Data Engineer'}\"\n"
+        f"     Resources: \"{rate_card_roles[0] if rate_card_roles else 'Backend Developer'}, {rate_card_roles[2] if len(rate_card_roles) > 2 else 'Data Scientist'}\"\n"
+        "\n"
+        "  ✓ Activity: 'System Architecture Design'\n"
+        f"     Owner: \"{rate_card_roles[2] if len(rate_card_roles) > 2 else 'Solution Architect'}\"\n"
+        f"     Resources: \"{rate_card_roles[0] if rate_card_roles else 'Backend Developer'}\"\n"
+        "\n"
+        "**Examples of INCORRECT assignment (DO NOT DO THIS):**\n"
         "  ✗ Owner: \"Infrastructure Setup\" (this is an activity, not a role!)\n"
         "  ✗ Owner: \"Data Ingestion Development\" (this is an activity, not a role!)\n"
-        "  ✗ Owner: \"Source Analysis\" (this is an activity, not a role!)\n"
+        "  ✗ Resources: \"\" or null (Resources must NEVER be empty!)\n"
+        "  ✗ Resources: \"Backend Developer\" when Owner is also \"Backend Developer\" (don't duplicate Owner in Resources)\n"
         "  ✗ Owner: \"John Smith\" (this is a person's name, not a role!)\n"
-        "  ✗ Owner: \"Project Manager\" (this role is NOT in the company's rate card!)\n"
         "\n"
         "Activity Duration Guidelines:\n"
         "Estimate realistic durations based on activity type and complexity. Use these as reference:\n"
@@ -2172,6 +2180,17 @@ async def clean_scope(db: AsyncSession, data: Dict[str, Any], project=None) -> D
                 cur = datetime(cur.year, cur.month + 1, 1)
         return month_eff
 
+    # Get available rate card roles for fallback
+    try:
+        if db and project:
+            rate_map = await get_rate_map_for_project(db, project)
+            available_roles = list(rate_map.keys())
+        else:
+            available_roles = list(ROLE_RATE_MAP.keys())
+    except Exception as e:
+        logger.warning(f"Could not get rate card roles for fallback: {e}")
+        available_roles = list(ROLE_RATE_MAP.keys())
+
     # --- Process activities ---
     for idx, a in enumerate(data.get("activities") or [], start=1):
         owner = a.get("Owner") or "Unassigned"
@@ -2181,6 +2200,23 @@ async def clean_scope(db: AsyncSession, data: Dict[str, Any], project=None) -> D
 
         # Remove owner from resources if duplicated
         raw_deps = [r for r in raw_deps if r.lower() != owner.lower()]
+
+        # 🔴 FALLBACK: If Resources is empty, assign a supporting role
+        if not raw_deps and available_roles:
+            # Find a role different from Owner to use as supporting resource
+            supporting_role = None
+            for role in available_roles:
+                if role.lower() != owner.lower():
+                    supporting_role = role
+                    break
+
+            # If we found a supporting role, use it; otherwise use the first available role
+            if supporting_role:
+                raw_deps = [supporting_role]
+                logger.info(f"📌 Activity {idx}: Auto-assigned supporting resource '{supporting_role}' (Owner: {owner})")
+            elif available_roles:
+                raw_deps = [available_roles[0]]
+                logger.info(f"📌 Activity {idx}: Fallback to first role '{available_roles[0]}' as resource")
 
         # Owner always included, then other resources
         roles = [owner] + raw_deps
