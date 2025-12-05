@@ -2100,6 +2100,24 @@ async def generate_architecture(
     # Replace problematic node names with safe versions
     dot_code = re.sub(r'([A-Za-z0-9_]+)\s*\[label="([^"]+):"', r'\1 [label="\2"', dot_code)
 
+    # Fix missing semicolons between attributes in node definitions
+    # Pattern: attribute="value" followed by another attribute= (missing semicolon)
+    # This handles cases like: label="text" fillcolor="#color" shape=box
+    dot_code = re.sub(
+        r'([a-zA-Z_]+\s*=\s*"[^"]*")\s+([a-zA-Z_]+\s*=)',
+        r'\1; \2',
+        dot_code
+    )
+
+    # Fix cluster declarations - ensure they use proper subgraph syntax
+    # Pattern: cluster<Name> { should be subgraph cluster<Name> {
+    dot_code = re.sub(
+        r'^\s*(cluster[A-Za-z0-9_]+)\s*\{',
+        r'subgraph \1 {',
+        dot_code,
+        flags=re.MULTILINE
+    )
+
     # ---------- Step 3: Do NOT override GPT's style ----------
     # Keep GPT's own clusters, nodes, and colors — just ensure it's syntactically valid
     # (Old static preamble removed intentionally)
